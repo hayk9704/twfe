@@ -1,1 +1,22 @@
 learn the packaging basics - with creating the initial simple version that does nothing
+
+(i) Learn the github workflow. Keep with it going forward
+
+1) make a different branch for each feature/part and commit messy changes there first. Once you commit to main, it needs to be a proper full working change. Make a branch feature then branch feature for each feature
+b) Once you made all the changes for the given feature, do a pull request that would allow to merge the feature branch with the main branch.
+c) After the pull request is merged into main, delete the feature branch. (check how this works when doing it afterwards)
+d) CHECK to understand what .gitignore is and when to use it.
+e) LATER check what tag is - when releasing a version
+f) on the first TEST day, check on github ACTIONS
+
+(ii) understand what pyproject.toml does
+
+
+(iii) learn when the test functions need to be defined - during each part or in the very end?
+
+
+(!) additional staff
+
+(a) python -m pip install -e ".[dev]" ------ installs the package with development tools. It means Python installs your package, but it points to your local source code. When you edit files in src/twfeiw/, your installed package updates automatically.
+
+(b) python -m pip install -e ".[dev]" ------ the e is for editable - if I change my package the changes automatically happen in the installed version. [dev] installs all the dependencies

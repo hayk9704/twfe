@@ -1,0 +1,64 @@
+[build-system]
+requires = ["hatchling>=1.26"]
+build-backend = "hatchling.build"
+
+[project]
+name = "twfeiw"
+version = "0.1.0"
+description = "Transparent TWFE and Sun-Abraham interaction-weighted event-study estimators for Python."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [
+    { name = "Hayk Gevorgyan" }
+]
+keywords = [
+    "difference-in-differences",
+    "event-study",
+    "twfe",
+    "sun-abraham",
+    "econometrics",
+    "causal-inference"
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering",
+]
+
+dependencies = [
+    "numpy>=1.24",
+    "pandas>=2.0",
+    "scipy>=1.10",
+    "statsmodels>=0.14",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.8",
+    "mypy>=1.10",
+]
+plot = [
+    "matplotlib>=3.7",
+]
+docs = [
+    "mkdocs>=1.5",
+    "mkdocstrings[python]>=0.25",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/twfeiw"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py310"
+
+# this tells pytest to look for tests inside the tests folder, when I run pytest
+[tool.pytest.ini_options]
+testpaths = ["tests"]
