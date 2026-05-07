@@ -14,6 +14,8 @@ f) on the first TEST day, check on github ACTIONS
 
 (iii) learn when the test functions need to be defined - during each part or in the very end?
 
+(iv) what exactly is the src layout? what is different from the standard layout
+
 
 (!) additional staff
 

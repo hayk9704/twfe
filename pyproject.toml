@@ -1,7 +1,14 @@
+# build - converting the storage folder into an installable distribution
 [build-system]
+
+# This is what is required to build the system
+# the build backend tells pip how to build the project for installation
 requires = ["hatchling>=1.26"]
+
+# Hatchling knows how to turn the source files into an installable package
 build-backend = "hatchling.build"
 
+# project's main metadata
 [project]
 name = "twfeiw"
 version = "0.1.0"
@@ -12,6 +19,8 @@ license = { text = "MIT" }
 authors = [
     { name = "Hayk Gevorgyan" }
 ]
+
+# These are search/discovery words.
 keywords = [
     "difference-in-differences",
     "event-study",
@@ -20,6 +29,8 @@ keywords = [
     "econometrics",
     "causal-inference"
 ]
+
+# If you publish your package, PyPI can show this information on the package page.
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Science/Research",
@@ -28,9 +39,11 @@ classifiers = [
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.12",
     "Topic :: Scientific/Engineering",
 ]
 
+# these are the packages required when the user runs the model
 dependencies = [
     "numpy>=1.24",
     "pandas>=2.0",
@@ -47,14 +60,19 @@ dev = [
 plot = [
     "matplotlib>=3.7",
 ]
+
+# These packages are needed only to build the documentation website.
 docs = [
     "mkdocs>=1.5",
     "mkdocstrings[python]>=0.25",
 ]
 
+# Tool for hatchling - When building a wheel, include the package located at src/twfeiw.
+# this is needed because we are 
 [tool.hatch.build.targets.wheel]
 packages = ["src/twfeiw"]
 
+# A tool for ruff which is a code formatting tool. It sees what formatting it should prefer
 [tool.ruff]
 line-length = 88
 target-version = "py310"
