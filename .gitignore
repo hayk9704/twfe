@@ -1,4 +1,25 @@
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Python cache
 __pycache__/
 *.py[cod]
+*$py.class
+
+# pytest cache
 .pytest_cache/
-.venv/
+
+# build outputs
+build/
+dist/
+*.egg-info/
+
+# notebooks
+.ipynb_checkpoints/
+
+# editor/system files
+.vscode/
+.DS_Store
+Thumbs.db

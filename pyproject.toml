@@ -68,7 +68,10 @@ docs = [
 ]
 
 # Tool for hatchling - When building a wheel, include the package located at src/twfeiw.
-# this is needed because we are 
+# this is needed because we are using the src folder with __init__.
+# If we don't use the src config, the terminal can run the package without having it 
+# installed. But with src/, it needs to have it installed to run. This is good
+# for checks
 [tool.hatch.build.targets.wheel]
 packages = ["src/twfeiw"]
 
@@ -77,6 +80,6 @@ packages = ["src/twfeiw"]
 line-length = 88
 target-version = "py310"
 
-# this tells pytest to look for tests inside the tests folder, when I run pytest
+# this tells pytest to look for tests inside the "tests" folder, when I run pytest
 [tool.pytest.ini_options]
 testpaths = ["tests"]
