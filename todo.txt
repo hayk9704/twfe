@@ -22,3 +22,5 @@ f) on the first TEST day, check on github ACTIONS
 (a) python -m pip install -e ".[dev]" ------ installs the package with development tools. It means Python installs your package, but it points to your local source code. When you edit files in src/twfeiw/, your installed package updates automatically.
 
 (b) python -m pip install -e ".[dev]" ------ the e is for editable - if I change my package the changes automatically happen in the installed version. [dev] installs all the dependencies
+
+(c) initial test_data.py - remember also checking for an unbalanced panel.
