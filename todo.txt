@@ -29,3 +29,9 @@ f) on the first TEST day, check on github ACTIONS
 of rank deficiency. For now remember about RANK DEFICIENT OLS - solution to the min problem
 of SSR exists but for rank < n, there are infinitely many solutions.
 
+(e) R^2 - After the vcov part is completed, remember to add (change) the R^2 parts for the other TWFE specifications
+
+
+Questions for the vcov part:
+what if method is not cluster but has cluster as an input.
+how do we handle missing data at each stage

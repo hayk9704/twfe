@@ -9,7 +9,7 @@ event-study and Sun-Abraham interaction-weighted specifications.
 
 ## Current Status
 
-The package currently has three working internal layers:
+The package currently has four working internal layers:
 
 ```text
 raw DataFrame
@@ -25,6 +25,10 @@ DesignMatrix
 fit_ols()
     ->
 OLSResult
+    ->
+compute_vcov()
+    ->
+VCovResult
 ```
 
 These pieces are intentionally modular. Each layer has one job:
@@ -32,6 +36,7 @@ These pieces are intentionally modular. Each layer has one job:
 - `data.py` validates and prepares the raw panel data.
 - `design.py` builds the regression outcome vector and regressor matrix.
 - `ols.py` estimates OLS coefficients from a prepared design matrix.
+- `vcov.py` computes variance-covariance matrices and standard errors.
 
 The public high-level estimator function, such as `twfe(df)`, is not implemented
 yet. For now, the package is used through the lower-level building blocks.
@@ -208,18 +213,81 @@ The OLS layer uses `numpy.linalg.lstsq` and checks that the regressor matrix has
 full column rank. If the design is rank deficient, it raises an error instead of
 silently returning unidentified coefficients.
 
+### 4. Variance-Covariance And Standard Errors
+
+`compute_vcov()` takes a `DesignMatrix` and an `OLSResult`, then computes a
+labeled variance-covariance matrix and standard errors.
+
+```python
+from twfeiw.vcov import compute_vcov
+
+vcov_result = compute_vcov(design, ols_result, method="classical")
+```
+
+The returned object is a `VCovResult` dataclass.
+
+Important fields include:
+
+```python
+vcov_result.vcov
+vcov_result.standard_errors
+vcov_result.method
+vcov_result.nobs
+vcov_result.rank
+vcov_result.df_resid
+vcov_result.small_sample
+vcov_result.n_clusters
+vcov_result.cluster_name
+```
+
+The currently supported methods are:
+
+```text
+classical
+HC1
+cluster
+```
+
+For unit-clustered standard errors, pass one cluster label per regression row:
+
+```python
+vcov_result = compute_vcov(
+    design,
+    ols_result,
+    method="cluster",
+    clusters=panel.data[panel.unit_code_col],
+)
+```
+
+Then the standard error for the TWFE treatment coefficient is:
+
+```python
+vcov_result.standard_errors["treatment"]
+```
+
+This layer only computes covariance matrices and standard errors. P-values,
+confidence intervals, and formatted result tables are planned for `results.py`.
+
 ## Example Current Workflow
 
 ```python
 from twfeiw.data import prepare_panel
 from twfeiw.design import build_twfe_design
 from twfeiw.ols import fit_ols
+from twfeiw.vcov import compute_vcov
 
 panel = prepare_panel(df)
 design = build_twfe_design(panel)
-result = fit_ols(design)
+ols_result = fit_ols(design)
+vcov_result = compute_vcov(
+    design,
+    ols_result,
+    method="cluster",
+    clusters=panel.data[panel.unit_code_col],
+)
 
-twfe_effect = result.params["treatment"]
+twfe_effect = ols_result.params["treatment"]
+twfe_se = vcov_result.standard_errors["treatment"]
 ```
 
 This is the current low-level workflow. A future public function will wrap these
@@ -329,6 +397,12 @@ Run only one test file:
 .venv\Scripts\python.exe -m pytest tests\test_ols.py
 ```
 
+Run the standard-error tests:
+
+```powershell
+.venv\Scripts\python.exe -m pytest tests\test_vcov.py
+```
+
 Run Ruff checks:
 
 ```powershell
@@ -340,6 +414,7 @@ Current tests cover:
 - data validation and treatment-timing construction
 - TWFE dummy-variable design construction
 - OLS point estimation
+- classical, HC1, and one-way clustered standard errors
 - agreement of the TWFE treatment coefficient with a `statsmodels` formula
   regression using `y ~ treatment + C(unit_id) + C(time)`
 
@@ -347,5 +422,5 @@ Current tests cover:
 
 This package is intentionally being built in small layers. The current priority
 is correctness and transparency for the standard TWFE estimator. Performance
-optimizations, sparse matrices, residualization, clustered standard errors,
-event-study plotting, and public result summaries are planned later.
+optimizations, sparse matrices, residualization, event-study plotting, and
+public result summaries are planned later.
