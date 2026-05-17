@@ -30,7 +30,7 @@ of rank deficiency. For now remember about RANK DEFICIENT OLS - solution to the 
 of SSR exists but for rank < n, there are infinitely many solutions.
 
 (e) R^2 - After the vcov part is completed, remember to add (change) the R^2 parts for the other TWFE specifications
-
+also check what those are No within-R², between-R², event-study-specific R²
 
 Questions for the vcov part:
 what if method is not cluster but has cluster as an input.

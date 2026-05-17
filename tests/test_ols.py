@@ -64,6 +64,58 @@ def test_rss_is_sum_of_squared_residuals():
     expected = float(result.residuals.to_numpy() @ result.residuals.to_numpy())
     assert result.rss == pytest.approx(expected)
 
+
+def test_tss_is_centered_total_sum_of_squares():
+    design = _twfe_design()
+
+    result = fit_ols(design)
+
+    y = design.outcome.to_numpy(dtype=float)
+    y_centered = y - y.mean()
+    expected = float(y_centered @ y_centered)
+    assert result.tss == pytest.approx(expected)
+
+
+def test_r_squared_matches_formula():
+    result = fit_ols(_twfe_design())
+
+    expected = 1.0 - result.rss / result.tss
+    assert result.r_squared == pytest.approx(expected)
+
+
+def test_adjusted_r_squared_matches_formula():
+    result = fit_ols(_twfe_design())
+
+    expected = 1.0 - (
+        result.rss / result.df_resid
+    ) / (result.tss / (result.nobs - 1))
+    assert result.adj_r_squared == pytest.approx(expected)
+
+
+def test_constant_outcome_returns_nan_r_squared():
+    design = DesignMatrix(
+        outcome=pd.Series([5.0, 5.0, 5.0], name="y"),
+        regressors=pd.DataFrame(
+            {
+                "const": [1.0, 1.0, 1.0],
+                "x": [0.0, 1.0, 2.0],
+            }
+        ),
+        model="test",
+        outcome_variable="y",
+        effect_cols=["x"],
+        fixed_effect_cols=[],
+        regressor_cols=["const", "x"],
+        reference_unit=None,
+        reference_time=0,
+    )
+
+    result = fit_ols(design)
+
+    assert result.tss == 0.0
+    assert np.isnan(result.r_squared)
+    assert np.isnan(result.adj_r_squared)
+
 # calculate the rank, residual degrees of freedom and assert equality with returned ones
 def test_nobs_rank_and_df_resid_are_stored():
     design = _twfe_design()
@@ -90,6 +142,34 @@ def test_treatment_coefficient_matches_statsmodels_formula_twfe():
     assert result.params["treatment"] == pytest.approx(
         statsmodels_fit.params["treatment"]
     )
+
+
+def test_r_squared_matches_statsmodels_formula_twfe():
+    data = _valid_data()
+    panel = prepare_panel(data)
+    design = build_twfe_design(panel)
+
+    result = fit_ols(design)
+    statsmodels_fit = smf.ols(
+        "y ~ treatment + C(unit_id) + C(time)",
+        data=data,
+    ).fit()
+
+    assert result.r_squared == pytest.approx(statsmodels_fit.rsquared)
+
+
+def test_adjusted_r_squared_matches_statsmodels_formula_twfe():
+    data = _valid_data()
+    panel = prepare_panel(data)
+    design = build_twfe_design(panel)
+
+    result = fit_ols(design)
+    statsmodels_fit = smf.ols(
+        "y ~ treatment + C(unit_id) + C(time)",
+        data=data,
+    ).fit()
+
+    assert result.adj_r_squared == pytest.approx(statsmodels_fit.rsquared_adj)
 
 # make rank < n and check that we return an error.
 def test_rank_deficient_design_raises_error():

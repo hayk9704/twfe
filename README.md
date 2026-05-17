@@ -198,6 +198,9 @@ ols_result.nobs
 ols_result.rank
 ols_result.df_resid
 ols_result.rss
+ols_result.tss
+ols_result.r_squared
+ols_result.adj_r_squared
 ols_result.regressor_cols
 ```
 
