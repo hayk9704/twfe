@@ -21,6 +21,9 @@ class OLSResult:
     rank: int
     df_resid: int
     rss: float
+    tss: float
+    r_squared: float
+    adj_r_squared: float
     regressor_cols: list[str]
 
 # * says that everything after * must be passed by keywords, not positions
@@ -50,6 +53,19 @@ def fit_ols(design: DesignMatrix, *, rcond: float | None = None) -> OLSResult:
     fitted = X @ theta_hat
     residuals = y - fitted
     rss = float(residuals @ residuals)
+    y_centered = y - y.mean()
+    tss = float(y_centered @ y_centered)
+    df_resid = int(nobs - rank)
+
+    if tss == 0.0:
+        r_squared = np.nan
+        adj_r_squared = np.nan
+    else:
+        r_squared = 1.0 - rss / tss
+        if df_resid <= 0 or nobs <= 1:
+            adj_r_squared = np.nan
+        else:
+            adj_r_squared = 1.0 - (rss / df_resid) / (tss / (nobs - 1))
 
     return OLSResult(
         params=pd.Series(theta_hat, index=design.regressor_cols, name="coef"),
@@ -65,7 +81,10 @@ def fit_ols(design: DesignMatrix, *, rcond: float | None = None) -> OLSResult:
         ),
         nobs=int(nobs),
         rank=rank,
-        df_resid=int(nobs - rank),
+        df_resid=df_resid,
         rss=rss,
+        tss=tss,
+        r_squared=r_squared,
+        adj_r_squared=adj_r_squared,
         regressor_cols=list(design.regressor_cols),
     )
