@@ -9,7 +9,7 @@ event-study and Sun-Abraham interaction-weighted specifications.
 
 ## Current Status
 
-The package currently has four working internal layers:
+The package currently has five working internal layers:
 
 ```text
 raw DataFrame
@@ -29,6 +29,10 @@ OLSResult
 compute_vcov()
     ->
 VCovResult
+    ->
+build_regression_result()
+    ->
+RegressionResult
 ```
 
 These pieces are intentionally modular. Each layer has one job:
@@ -37,6 +41,7 @@ These pieces are intentionally modular. Each layer has one job:
 - `design.py` builds the regression outcome vector and regressor matrix.
 - `ols.py` estimates OLS coefficients from a prepared design matrix.
 - `vcov.py` computes variance-covariance matrices and standard errors.
+- `results.py` combines estimates and standard errors into inference output.
 
 The public high-level estimator function, such as `twfe(df)`, is not implemented
 yet. For now, the package is used through the lower-level building blocks.
@@ -269,7 +274,47 @@ vcov_result.standard_errors["treatment"]
 ```
 
 This layer only computes covariance matrices and standard errors. P-values,
-confidence intervals, and formatted result tables are planned for `results.py`.
+confidence intervals, and summary tables are handled by `results.py`.
+
+### 5. Regression Results And Inference
+
+`build_regression_result()` combines OLS point estimates with a variance-
+covariance result, then computes t-statistics, p-values, confidence intervals,
+and a compact summary table.
+
+```python
+from twfeiw.results import build_regression_result
+
+regression_result = build_regression_result(design, ols_result, vcov_result)
+```
+
+The returned object is a `RegressionResult` dataclass.
+
+Important fields include:
+
+```python
+regression_result.params
+regression_result.vcov
+regression_result.standard_errors
+regression_result.t_stats
+regression_result.p_values
+regression_result.conf_int
+regression_result.summary
+regression_result.r_squared
+regression_result.adj_r_squared
+regression_result.inference_df
+regression_result.vcov_method
+```
+
+For example, the current treatment row can be accessed as:
+
+```python
+regression_result.summary.loc["treatment"]
+```
+
+For clustered standard errors, p-values and confidence intervals use `G - 1`
+inference degrees of freedom, where `G` is the number of clusters. Classical and
+HC1 inference use residual degrees of freedom.
 
 ## Example Current Workflow
 
@@ -277,6 +322,7 @@ confidence intervals, and formatted result tables are planned for `results.py`.
 from twfeiw.data import prepare_panel
 from twfeiw.design import build_twfe_design
 from twfeiw.ols import fit_ols
+from twfeiw.results import build_regression_result
 from twfeiw.vcov import compute_vcov
 
 panel = prepare_panel(df)
@@ -288,9 +334,12 @@ vcov_result = compute_vcov(
     method="cluster",
     clusters=panel.data[panel.unit_code_col],
 )
+regression_result = build_regression_result(design, ols_result, vcov_result)
 
-twfe_effect = ols_result.params["treatment"]
-twfe_se = vcov_result.standard_errors["treatment"]
+twfe_effect = regression_result.params["treatment"]
+twfe_se = regression_result.standard_errors["treatment"]
+twfe_pvalue = regression_result.p_values["treatment"]
+twfe_ci = regression_result.conf_int.loc["treatment"]
 ```
 
 This is the current low-level workflow. A future public function will wrap these
@@ -315,6 +364,7 @@ prepare_panel()
 build_twfe_design()
 fit_ols()
 compute standard errors
+build regression result
 return TWFEResult
 ```
 
@@ -418,6 +468,7 @@ Current tests cover:
 - TWFE dummy-variable design construction
 - OLS point estimation
 - classical, HC1, and one-way clustered standard errors
+- t-statistics, p-values, confidence intervals, and summary tables
 - agreement of the TWFE treatment coefficient with a `statsmodels` formula
   regression using `y ~ treatment + C(unit_id) + C(time)`
 
@@ -426,4 +477,4 @@ Current tests cover:
 This package is intentionally being built in small layers. The current priority
 is correctness and transparency for the standard TWFE estimator. Performance
 optimizations, sparse matrices, residualization, event-study plotting, and
-public result summaries are planned later.
+public estimator wrappers are planned later.
