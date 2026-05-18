@@ -9,10 +9,13 @@ event-study and Sun-Abraham interaction-weighted specifications.
 
 ## Current Status
 
-The package currently has five working internal layers:
+The package currently has a public TWFE API wrapper plus five working internal
+layers:
 
 ```text
 raw DataFrame
+    ->
+twfe()
     ->
 prepare_panel()
     ->
@@ -33,18 +36,26 @@ VCovResult
 build_regression_result()
     ->
 RegressionResult
+    ->
+TWFEResult
 ```
 
 These pieces are intentionally modular. Each layer has one job:
 
+- `api.py` provides the public `twfe()` function and `TWFEResult` wrapper.
 - `data.py` validates and prepares the raw panel data.
 - `design.py` builds the regression outcome vector and regressor matrix.
 - `ols.py` estimates OLS coefficients from a prepared design matrix.
 - `vcov.py` computes variance-covariance matrices and standard errors.
 - `results.py` combines estimates and standard errors into inference output.
 
-The public high-level estimator function, such as `twfe(df)`, is not implemented
-yet. For now, the package is used through the lower-level building blocks.
+The main user-facing entry point is:
+
+```python
+from twfeiw import twfe
+
+result = twfe(df)
+```
 
 ## Input Data Contract
 
@@ -316,7 +327,49 @@ For clustered standard errors, p-values and confidence intervals use `G - 1`
 inference degrees of freedom, where `G` is the number of clusters. Classical and
 HC1 inference use residual degrees of freedom.
 
-## Example Current Workflow
+## Example Public Workflow
+
+```python
+from twfeiw import twfe
+
+result = twfe(df, vcov="cluster")
+
+twfe_effect = result.effect
+twfe_se = result.effect_se
+twfe_pvalue = result.effect_p_value
+twfe_ci = result.effect_conf_int
+summary = result.summary()
+```
+
+For clustered standard errors, `vcov="cluster"` clusters by the panel unit. If
+the unit column is customized, the same unit choice is used for clustering:
+
+```python
+result = twfe(
+    df,
+    unit="id",
+    time="year",
+    outcome="outcome",
+    treatment="treated",
+    vcov="cluster",
+)
+```
+
+The returned `TWFEResult` keeps the final regression output plus the intermediate
+objects used to produce it:
+
+```python
+result.regression
+result.panel
+result.design
+result.ols
+result.vcov
+```
+
+## Advanced Low-Level Workflow
+
+The lower-level building blocks remain available for debugging, testing, and
+custom workflows:
 
 ```python
 from twfeiw.data import prepare_panel
@@ -342,22 +395,7 @@ twfe_pvalue = regression_result.p_values["treatment"]
 twfe_ci = regression_result.conf_int.loc["treatment"]
 ```
 
-This is the current low-level workflow. A future public function will wrap these
-steps.
-
-## Intended Final Workflow
-
-The intended user-facing API will eventually look more like this:
-
-```python
-from twfeiw import twfe
-
-result = twfe(df)
-result.effect
-result.summary()
-```
-
-Internally, that high-level function should still use the same modular pipeline:
+Internally, the public API uses this same modular pipeline:
 
 ```text
 prepare_panel()
@@ -389,8 +427,9 @@ results.py
     Store user-facing model results, summaries, confidence intervals, and
     effect-specific outputs.
 
-estimators.py
-    Provide public functions such as twfe(), event_study(), and sun_abraham().
+api.py
+    Provide public functions such as twfe(), and later event_study() and
+    sun_abraham().
 ```
 
 ## Planned Extensions
