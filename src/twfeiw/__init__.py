@@ -2,8 +2,9 @@
 
 """Transparent TWFE and Sun-Abraham event-study estimators."""
 
-from twfeiw.api import TWFEResult, twfe
+from twfeiw.api import EventStudyResult, TWFEResult, event_study, twfe
 
 __version__ = "0.1.0"
 
-__all__ = ["TWFEResult", "__version__", "twfe"]
+# these are for public naming
+__all__ = ["EventStudyResult", "TWFEResult", "__version__", "event_study", "twfe"]
