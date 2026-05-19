@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from numbers import Integral
 
 import pandas as pd
 
@@ -22,6 +23,16 @@ class DesignMatrix:
     regressor_cols: list[str]
     reference_unit: object
     reference_time: int
+
+
+@dataclass(frozen=True)
+class EventStudyDesign:
+    """TWFE event-study design plus event-time metadata for reporting."""
+
+    design: DesignMatrix
+    event_time_by_column: dict[str, int]
+    reference_event_time: int
+    included_event_times: list[int]
 
 
 def build_twfe_design(panel: PreparedPanel) -> DesignMatrix:
@@ -59,6 +70,100 @@ def build_twfe_design(panel: PreparedPanel) -> DesignMatrix:
     )
 
 
+def build_twfe_event_study_design(
+    panel: PreparedPanel,
+    *,
+    min_event_time: int | None = None,
+    max_event_time: int | None = None,
+    reference_event_time: int = -1,
+) -> EventStudyDesign:
+    """Build an explicit dummy-variable design for a TWFE event study."""
+
+    if not isinstance(panel, PreparedPanel):
+        raise TypeError("panel must be a PreparedPanel")
+
+    min_event_time = _validate_optional_event_time(
+        min_event_time,
+        "min_event_time",
+    )
+    max_event_time = _validate_optional_event_time(
+        max_event_time,
+        "max_event_time",
+    )
+    reference_event_time = _validate_event_time(
+        reference_event_time,
+        "reference_event_time",
+    )
+    if (
+        min_event_time is not None
+        and max_event_time is not None
+        and min_event_time > max_event_time
+    ):
+        raise ValueError("min_event_time must be less than or equal to max_event_time")
+
+    data = panel.data.reset_index(drop=True)
+    observed_event_times = _observed_event_times(data, panel)
+    if reference_event_time not in observed_event_times:
+        raise ValueError(
+            "reference_event_time must be observed among treated event times"
+        )
+    if (
+        min_event_time is not None
+        and reference_event_time < min_event_time
+        or max_event_time is not None
+        and reference_event_time > max_event_time
+    ):
+        raise ValueError(
+            "reference_event_time must be inside the selected event-time window"
+        )
+
+    included_event_times = [
+        event_time
+        for event_time in observed_event_times
+        if event_time != reference_event_time
+        and (min_event_time is None or event_time >= min_event_time)
+        and (max_event_time is None or event_time <= max_event_time)
+    ]
+    if not included_event_times:
+        raise ValueError("event-study design must include event-time coefficients")
+
+    outcome = _build_outcome(data, panel.outcome)
+    intercept = _build_intercept(len(data))
+    event_dummies, event_time_by_column = _build_event_time_dummies(
+        data,
+        panel,
+        included_event_times,
+    )
+
+    unit_dummies, reference_unit = _build_unit_fe_dummies(data, panel)
+    time_dummies, reference_time = _build_time_fe_dummies(data, panel.time)
+
+    regressors = pd.concat(
+        [intercept, event_dummies, unit_dummies, time_dummies],
+        axis=1,
+    )
+    fixed_effect_cols = list(unit_dummies.columns) + list(time_dummies.columns)
+
+    design = DesignMatrix(
+        outcome=outcome,
+        regressors=regressors,
+        model="twfe_event_study",
+        outcome_variable=panel.outcome,
+        effect_cols=list(event_dummies.columns),
+        fixed_effect_cols=fixed_effect_cols,
+        regressor_cols=list(regressors.columns),
+        reference_unit=reference_unit,
+        reference_time=reference_time,
+    )
+
+    return EventStudyDesign(
+        design=design,
+        event_time_by_column=event_time_by_column,
+        reference_event_time=reference_event_time,
+        included_event_times=included_event_times,
+    )
+
+
 def _build_outcome(data: pd.DataFrame, outcome: str) -> pd.Series:
     return data[outcome].astype(float).rename(outcome)
 
@@ -69,6 +174,25 @@ def _build_intercept(nobs: int) -> pd.DataFrame:
 
 def _build_treatment(data: pd.DataFrame, treatment: str) -> pd.DataFrame:
     return data[[treatment]].astype(float)
+
+
+def _build_event_time_dummies(
+    data: pd.DataFrame,
+    panel: PreparedPanel,
+    included_event_times: list[int],
+) -> tuple[pd.DataFrame, dict[str, int]]:
+    """Build one event-time indicator column for each included event time."""
+
+    event_time = data[panel.event_time_col]
+    dummies: dict[str, pd.Series] = {}
+    event_time_by_column: dict[str, int] = {}
+
+    for value in included_event_times:
+        column = _format_event_time_column(value)
+        dummies[column] = event_time.eq(value).fillna(False).astype(float)
+        event_time_by_column[column] = value
+
+    return pd.DataFrame(dummies, index=data.index), event_time_by_column
 
 
 def _build_unit_fe_dummies(
@@ -118,3 +242,39 @@ def _build_dummies(
         drop_first=True,
         dtype=float,
     )
+
+
+def _observed_event_times(data: pd.DataFrame, panel: PreparedPanel) -> list[int]:
+    """Return sorted event times observed among ever-treated units."""
+
+    event_times = data.loc[
+        data[panel.ever_treated_col],
+        panel.event_time_col,
+    ].dropna()
+    return sorted(int(value) for value in event_times.unique())
+
+
+def _format_event_time_column(event_time: int) -> str:
+    """Format an integer event time as a stable regression column name."""
+
+    if event_time < 0:
+        return f"event_time_m{abs(event_time)}"
+    if event_time > 0:
+        return f"event_time_p{event_time}"
+    return "event_time_0"
+
+
+def _validate_optional_event_time(value: int | None, name: str) -> int | None:
+    """Validate an optional event-time boundary."""
+
+    if value is None:
+        return None
+    return _validate_event_time(value, name)
+
+
+def _validate_event_time(value: int, name: str) -> int:
+    """Validate and normalize an event-time value."""
+
+    if not isinstance(value, Integral):
+        raise ValueError(f"{name} must be an integer")
+    return int(value)
