@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 from scipy import stats
 
-from twfeiw.design import DesignMatrix
+from twfeiw.design import DesignMatrix, SunAbrahamDesign
 from twfeiw.ols import OLSResult
 from twfeiw.vcov import VCovResult
 
@@ -41,6 +41,15 @@ class RegressionResult:
     n_clusters: int | None
     cluster_name: str | None
     alpha: float
+
+
+@dataclass(frozen=True)
+class SunAbrahamAggregation:
+    """Sun-Abraham cohort-event estimates and interaction-weighted averages."""
+
+    cohort_event_table: pd.DataFrame
+    event_table: pd.DataFrame
+    weights: pd.DataFrame
 
 
 def build_regression_result(
@@ -117,6 +126,28 @@ def build_regression_result(
     )
 
 
+def build_sun_abraham_aggregation(
+    sun_design: SunAbrahamDesign,
+    regression: RegressionResult,
+) -> SunAbrahamAggregation:
+    """Aggregate Sun-Abraham cohort-event coefficients by event time."""
+
+    _validate_sun_abraham_inputs(sun_design, regression)
+
+    cohort_event_table = _build_cohort_event_table(sun_design, regression)
+    event_table = _build_interaction_weighted_event_table(
+        cohort_event_table,
+        regression,
+    )
+    weights = cohort_event_table[["cell_count", "weight"]].copy()
+
+    return SunAbrahamAggregation(
+        cohort_event_table=cohort_event_table,
+        event_table=event_table,
+        weights=weights,
+    )
+
+
 def _validate_inputs(
     design: DesignMatrix,
     ols_result: OLSResult,
@@ -149,6 +180,133 @@ def _validate_inputs(
         raise ValueError("OLS and vcov rank metadata must match")
     if ols_result.df_resid != vcov_result.df_resid:
         raise ValueError("OLS and vcov df_resid metadata must match")
+
+
+def _validate_sun_abraham_inputs(
+    sun_design: SunAbrahamDesign,
+    regression: RegressionResult,
+) -> None:
+    """Check Sun-Abraham design metadata and regression output alignment."""
+
+    if not isinstance(sun_design, SunAbrahamDesign):
+        raise TypeError("sun_design must be a SunAbrahamDesign")
+    if not isinstance(regression, RegressionResult):
+        raise TypeError("regression must be a RegressionResult")
+    if sun_design.design.model != "sun_abraham" or regression.model != "sun_abraham":
+        raise ValueError("Sun-Abraham aggregation requires a sun_abraham model")
+    if regression.effect_cols != sun_design.design.effect_cols:
+        raise ValueError("Sun-Abraham effect columns must match regression output")
+    if set(sun_design.cohort_event_by_column) != set(regression.effect_cols):
+        raise ValueError("cohort-event metadata must match effect columns")
+
+
+def _build_cohort_event_table(
+    sun_design: SunAbrahamDesign,
+    regression: RegressionResult,
+) -> pd.DataFrame:
+    """Build inference output indexed by cohort and event time."""
+
+    rows: list[dict[str, object]] = []
+    index: list[tuple[int, int]] = []
+
+    for column in regression.effect_cols:
+        cohort, event_time = sun_design.cohort_event_by_column[column]
+        summary_row = regression.summary.loc[column]
+        cell_count = int(sun_design.cell_counts.loc[(cohort, event_time)])
+
+        rows.append(
+            {
+                "coef": float(summary_row["coef"]),
+                "std_err": float(summary_row["std_err"]),
+                "t": float(summary_row["t"]),
+                "p_value": float(summary_row["p_value"]),
+                "ci_lower": float(summary_row["ci_lower"]),
+                "ci_upper": float(summary_row["ci_upper"]),
+                "column": column,
+                "cell_count": cell_count,
+            }
+        )
+        index.append((cohort, event_time))
+
+    table = pd.DataFrame(
+        rows,
+        index=pd.MultiIndex.from_tuples(index, names=["cohort", "event_time"]),
+    )
+    event_totals = table.groupby(level="event_time")["cell_count"].transform("sum")
+    table["weight"] = table["cell_count"] / event_totals
+    return table[
+        [
+            "coef",
+            "std_err",
+            "t",
+            "p_value",
+            "ci_lower",
+            "ci_upper",
+            "column",
+            "cell_count",
+            "weight",
+        ]
+    ]
+
+
+def _build_interaction_weighted_event_table(
+    cohort_event_table: pd.DataFrame,
+    regression: RegressionResult,
+) -> pd.DataFrame:
+    """Build one interaction-weighted estimate for each event time."""
+
+    rows: list[dict[str, float | int]] = []
+    index: list[int] = []
+
+    critical = stats.t.ppf(1.0 - regression.alpha / 2.0, df=regression.inference_df)
+
+    for event_time, event_rows in cohort_event_table.groupby(
+        level="event_time",
+        sort=True,
+    ):
+        columns = event_rows["column"].tolist()
+        weights = event_rows["weight"].to_numpy(dtype=float)
+        params = regression.params.loc[columns].to_numpy(dtype=float)
+        vcov = regression.vcov.loc[columns, columns].to_numpy(dtype=float)
+
+        coef = float(weights @ params)
+        variance = float(weights @ vcov @ weights)
+        std_err = float(np.sqrt(max(variance, 0.0)))
+        if std_err == 0.0:
+            t_stat = float(np.sign(coef) * np.inf) if coef != 0.0 else np.nan
+        else:
+            t_stat = coef / std_err
+        p_value = float(2.0 * stats.t.sf(np.abs(t_stat), df=regression.inference_df))
+        ci_lower = float(coef - critical * std_err)
+        ci_upper = float(coef + critical * std_err)
+
+        rows.append(
+            {
+                "coef": coef,
+                "std_err": std_err,
+                "t": t_stat,
+                "p_value": p_value,
+                "ci_lower": ci_lower,
+                "ci_upper": ci_upper,
+                "n_cohorts": int(len(event_rows)),
+                "cell_count": int(event_rows["cell_count"].sum()),
+            }
+        )
+        index.append(int(event_time))
+
+    table = pd.DataFrame(rows, index=pd.Index(index, name="event_time"))
+    return table[
+        [
+            "coef",
+            "std_err",
+            "t",
+            "p_value",
+            "ci_lower",
+            "ci_upper",
+            "n_cohorts",
+            "cell_count",
+        ]
+    ]
 
 
 def _validate_alpha(alpha: float) -> float:

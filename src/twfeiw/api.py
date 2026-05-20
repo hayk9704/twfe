@@ -10,11 +10,18 @@ from twfeiw.data import PreparedPanel, prepare_panel
 from twfeiw.design import (
     DesignMatrix,
     EventStudyDesign,
+    SunAbrahamDesign,
+    build_sun_abraham_design,
     build_twfe_design,
     build_twfe_event_study_design,
 )
 from twfeiw.ols import OLSResult, fit_ols
-from twfeiw.results import RegressionResult, build_regression_result
+from twfeiw.results import (
+    RegressionResult,
+    SunAbrahamAggregation,
+    build_regression_result,
+    build_sun_abraham_aggregation,
+)
 from twfeiw.vcov import VCovResult, compute_vcov
 
 
@@ -298,6 +305,146 @@ class EventStudyResult:
         ]
 
 
+@dataclass(frozen=True)
+class SunAbrahamResult:
+    """User-facing result from a Sun-Abraham event-study regression."""
+
+    regression: RegressionResult
+    panel: PreparedPanel
+    sun_abraham_design: SunAbrahamDesign
+    aggregation: SunAbrahamAggregation
+    ols: OLSResult
+    vcov: VCovResult
+
+    @property
+    def design(self) -> DesignMatrix:
+        """Regression design matrix used for OLS."""
+
+        return self.sun_abraham_design.design
+
+    @property
+    def params(self) -> pd.Series:
+        """Estimated regression coefficients."""
+
+        return self.regression.params
+
+    @property
+    def vcov_matrix(self) -> pd.DataFrame:
+        """Estimated variance-covariance matrix."""
+
+        return self.regression.vcov
+
+    @property
+    def standard_errors(self) -> pd.Series:
+        """Coefficient standard errors."""
+
+        return self.regression.standard_errors
+
+    @property
+    def t_stats(self) -> pd.Series:
+        """Coefficient t-statistics."""
+
+        return self.regression.t_stats
+
+    @property
+    def p_values(self) -> pd.Series:
+        """Coefficient p-values."""
+
+        return self.regression.p_values
+
+    @property
+    def conf_int(self) -> pd.DataFrame:
+        """Coefficient confidence intervals."""
+
+        return self.regression.conf_int
+
+    @property
+    def r_squared(self) -> float:
+        """Regression R-squared."""
+
+        return self.regression.r_squared
+
+    @property
+    def adj_r_squared(self) -> float:
+        """Regression adjusted R-squared."""
+
+        return self.regression.adj_r_squared
+
+    @property
+    def nobs(self) -> int:
+        """Number of observations used in the regression."""
+
+        return self.regression.nobs
+
+    @property
+    def df_resid(self) -> int:
+        """Residual degrees of freedom from the OLS fit."""
+
+        return self.regression.df_resid
+
+    @property
+    def inference_df(self) -> int:
+        """Degrees of freedom used for p-values and confidence intervals."""
+
+        return self.regression.inference_df
+
+    @property
+    def vcov_method(self) -> str:
+        """Variance-covariance method used for inference."""
+
+        return self.regression.vcov_method
+
+    @property
+    def reference_event_time(self) -> int:
+        """Omitted event time used as the event-study reference period."""
+
+        return self.sun_abraham_design.reference_event_time
+
+    @property
+    def event_times(self) -> list[int]:
+        """Event times included in the interaction-weighted event table."""
+
+        return self.sun_abraham_design.included_event_times
+
+    @property
+    def cohorts(self) -> list[int]:
+        """First-treatment cohorts included in the Sun-Abraham design."""
+
+        return self.sun_abraham_design.cohorts
+
+    @property
+    def cohort_event_columns(self) -> list[str]:
+        """Regression column names for cohort/event-time coefficients."""
+
+        return list(self.sun_abraham_design.cohort_event_by_column)
+
+    @property
+    def control_group(self) -> str:
+        """Control group used by the Sun-Abraham design."""
+
+        return self.sun_abraham_design.control_group
+
+    def summary(self) -> pd.DataFrame:
+        """Return a copy of the full coefficient summary table."""
+
+        return self.regression.summary.copy()
+
+    def cohort_event_table(self) -> pd.DataFrame:
+        """Return raw cohort/event-time estimates."""
+
+        return self.aggregation.cohort_event_table.copy()
+
+    def event_table(self) -> pd.DataFrame:
+        """Return interaction-weighted event-time estimates."""
+
+        return self.aggregation.event_table.copy()
+
+    def weights(self) -> pd.DataFrame:
+        """Return cohort/event-time aggregation weights."""
+
+        return self.aggregation.weights.copy()
+
+
 def twfe(
     data: pd.DataFrame,
     *,
@@ -506,6 +653,78 @@ def event_study(
         regression=regression,
         panel=panel,
         event_design=event_design,
+        ols=ols_result,
+        vcov=vcov_result,
+    )
+
+
+def sun_abraham(
+    data: pd.DataFrame,
+    *,
+    unit: str = "unit_id",
+    time: str = "time",
+    outcome: str = "y",
+    treatment: str = "treatment",
+    min_event_time: int | None = None,
+    max_event_time: int | None = None,
+    reference_event_time: int = -1,
+    control_group: str = "never_treated",
+    vcov: str = "classical",
+    alpha: float = 0.05,
+    small_sample: bool = True,
+    rcond: float | None = None,
+) -> SunAbrahamResult:
+    """Estimate a Sun-Abraham interaction-weighted event study."""
+
+    if not isinstance(vcov, str):
+        raise TypeError("vcov must be a string")
+
+    panel = prepare_panel(
+        data,
+        unit=unit,
+        time=time,
+        outcome=outcome,
+        treatment=treatment,
+    )
+    sun_design = build_sun_abraham_design(
+        panel,
+        min_event_time=min_event_time,
+        max_event_time=max_event_time,
+        reference_event_time=reference_event_time,
+        control_group=control_group,
+    )
+    design = sun_design.design
+    ols_result = fit_ols(design, rcond=rcond)
+
+    if vcov.casefold() == "cluster":
+        vcov_result = compute_vcov(
+            design,
+            ols_result,
+            method="cluster",
+            clusters=panel.data[panel.unit_code_col],
+            small_sample=small_sample,
+        )
+    else:
+        vcov_result = compute_vcov(
+            design,
+            ols_result,
+            method=vcov,
+            small_sample=small_sample,
+        )
+
+    regression = build_regression_result(
+        design,
+        ols_result,
+        vcov_result,
+        alpha=alpha,
+    )
+    aggregation = build_sun_abraham_aggregation(sun_design, regression)
+
+    return SunAbrahamResult(
+        regression=regression,
+        panel=panel,
+        sun_abraham_design=sun_design,
+        aggregation=aggregation,
         ols=ols_result,
         vcov=vcov_result,
     )

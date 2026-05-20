@@ -4,25 +4,26 @@ Transparent two-way fixed effects (TWFE) and interaction-weighted event-study
 estimators for Python.
 
 This package is currently in early development. It implements the standard TWFE
-workflow and a conventional TWFE event-study workflow from first principles,
-before extending to Sun-Abraham interaction-weighted specifications.
+workflow, a conventional TWFE event-study workflow, and a Sun-Abraham
+interaction-weighted event-study workflow from first principles.
 
 ## Current Status
 
-The package currently has public TWFE and event-study API wrappers plus five
-working internal layers:
+The package currently has public TWFE, event-study, and Sun-Abraham API wrappers
+plus five working internal layers:
 
 ```text
 raw DataFrame
     ->
 twfe()
 or event_study()
+or sun_abraham()
     ->
 prepare_panel()
     ->
 PreparedPanel
     ->
-build_twfe_design()
+build_twfe_design(), build_twfe_event_study_design(), or build_sun_abraham_design()
     ->
 DesignMatrix
     ->
@@ -38,13 +39,13 @@ build_regression_result()
     ->
 RegressionResult
     ->
-TWFEResult or EventStudyResult
+TWFEResult, EventStudyResult, or SunAbrahamResult
 ```
 
 These pieces are intentionally modular. Each layer has one job:
 
-- `api.py` provides the public `twfe()` and `event_study()` functions and
-  result wrappers.
+- `api.py` provides the public `twfe()`, `event_study()`, and
+  `sun_abraham()` functions and result wrappers.
 - `data.py` validates and prepares the raw panel data.
 - `design.py` builds the regression outcome vector and regressor matrix.
 - `ols.py` estimates OLS coefficients from a prepared design matrix.
@@ -54,10 +55,11 @@ These pieces are intentionally modular. Each layer has one job:
 The main user-facing entry points are:
 
 ```python
-from twfeiw import event_study, twfe
+from twfeiw import event_study, sun_abraham, twfe
 
 result = twfe(df)
 event_result = event_study(df)
+sa_result = sun_abraham(df)
 ```
 
 ## Input Data Contract
@@ -424,7 +426,7 @@ unit, just like `twfe()`.
 This is the conventional TWFE event-study regression. Under staggered adoption
 and heterogeneous treatment effects, these coefficients can reflect problematic
 already-treated comparisons. Sun-Abraham interaction-weighted event-study
-effects are planned separately.
+effects are available through `sun_abraham()`.
 
 ## Advanced Low-Level Workflow
 
@@ -459,16 +461,17 @@ Internally, the public API uses this same modular pipeline:
 
 ```text
 prepare_panel()
-build_twfe_design() or build_twfe_event_study_design()
+build_twfe_design(), build_twfe_event_study_design(), or build_sun_abraham_design()
 fit_ols()
 compute standard errors
 build regression result
-return TWFEResult or EventStudyResult
+build Sun-Abraham aggregation when needed
+return TWFEResult, EventStudyResult, or SunAbrahamResult
 ```
 
-## Planned Architecture
+## Architecture
 
-The standard TWFE implementation is expected to grow into these modules:
+The implementation is split into these modules:
 
 ```text
 data.py
@@ -488,28 +491,48 @@ results.py
     effect-specific outputs.
 
 api.py
-    Provide public functions such as twfe(), event_study(), and later
-    sun_abraham().
+    Provide public functions such as twfe(), event_study(), and sun_abraham().
 ```
 
-## Planned Extensions
+## Sun-Abraham Interaction-Weighted Event Study
 
-### Sun-Abraham Interaction-Weighted Event Study
-
-The Sun-Abraham design will use cohort-by-event-time interactions:
+The Sun-Abraham design uses cohort-by-event-time interactions:
 
 ```text
 y_it =
     alpha_i
     + lambda_t
-    + sum_g sum_k theta_gk
+    + sum_g sum_{k != reference} theta_gk
         * 1[first_treat_time_i = g]
         * 1[event_time_it = k]
     + error_it
 ```
 
-After estimating cohort-event coefficients, a later aggregation layer will
-compute interaction-weighted event-study effects.
+The first implementation uses `control_group="never_treated"` only. This means
+never-treated units remain in the data and keep their unit/time fixed effects,
+but all Sun-Abraham treatment-effect dummy columns are zero for those rows. The
+reference event time defaults to `-1`, so cohort-specific reference-period rows
+also remain in the data but do not receive an included treatment-effect dummy.
+
+```python
+from twfeiw import sun_abraham
+
+result = sun_abraham(
+    df,
+    min_event_time=-5,
+    max_event_time=5,
+    vcov="cluster",
+)
+
+cohort_event_table = result.cohort_event_table()
+event_table = result.event_table()
+weights = result.weights()
+```
+
+`cohort_event_table()` reports the raw cohort/event-time coefficients
+`theta_gk`. `event_table()` reports the interaction-weighted event-study
+estimates, one row per event time. `weights()` reports the cell-count weights
+used to aggregate raw cohort/event-time estimates into event-time estimates.
 
 ## Testing
 
@@ -549,11 +572,15 @@ Current tests cover:
   regression using `y ~ treatment + C(unit_id) + C(time)`
 - agreement of TWFE event-study coefficients and fitted values with a
   `statsmodels` regression using explicit event-time dummies
+- Sun-Abraham cohort/event-time design construction, raw cohort-event tables,
+  interaction-weighted event tables, and aggregation weights
+- agreement of Sun-Abraham cohort/event-time coefficients with a `statsmodels`
+  regression using explicit cohort/event-time dummies
 
 ## Development Notes
 
 This package is intentionally being built in small layers. The current priority
-is correctness and transparency for standard TWFE and conventional TWFE
-event-study estimators. Performance optimizations, sparse matrices,
-residualization, event-study plotting, and Sun-Abraham interaction-weighted
-effects are planned later.
+is correctness and transparency for standard TWFE, conventional TWFE event
+studies, and Sun-Abraham interaction-weighted event studies. Performance
+optimizations, sparse matrices, residualization, event-study plotting, and
+additional Sun-Abraham control groups are planned later.
